@@ -1,0 +1,5 @@
+# La guía de Windows se queda con finales de línea de Windows (CRLF) y BOM, como va en el zip
+windows/LEEME.txt -text
+*.png binary
+*.ico binary
+*.gz binary

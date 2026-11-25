@@ -1,0 +1,80 @@
+﻿CENTROS EDUCATIVOS DE ESPAÑA — teléfono y email
+================================================
+
+No hay que instalar nada.
+
+CÓMO ABRIRLO
+1. Botón derecho sobre el archivo ZIP > «Extraer todo». Elige un sitio fijo, por ejemplo la carpeta
+   Documentos (mejor no dejarlo en Descargas si sueles vaciarla).
+2. Entra en la carpeta CentrosEducativos y haz doble clic en «Centros educativos»
+   (tiene el icono de Python, azul y amarillo).
+3. El programa crea en tu escritorio el acceso directo «Centros educativos», con su propio icono.
+   A partir de entonces, ábrelo desde ahí.
+- Si borras el acceso directo, puedes volver a crearlo con «Crear acceso directo en el escritorio»
+  (abajo a la izquierda de la ventana).
+- No borres la carpeta CentrosEducativos: el acceso directo la necesita. Si la cambias de sitio,
+  ábrela una vez con «Centros educativos» y el acceso directo se actualiza solo.
+- Si ya tenías una versión anterior: borra su carpeta, descomprime esta en el mismo sitio y ábrela
+  una vez desde la carpeta. El acceso directo se corrige solo y la lista que ya tenías se conserva.
+
+CÓMO SE USA
+La lista de todos los centros de España ya viene incluida: aparece nada más abrir, sin esperar.
+1. En la columna oscura de la izquierda, marca las comunidades que quieras ver (puedes escribir en
+   «Buscar comunidad» para encontrarlas). Si no marcas ninguna, se ve toda España.
+2. En el centro verás los centros con su tipo, municipio y teléfono. Encima tienes las cifras de la
+   lista: cuántos centros hay, cuántos con email y con teléfono, y cuántos has marcado.
+   - Escribe en el buscador de arriba parte del nombre, municipio, tipo (CEIP, IES…), email o código.
+   - Filtra con los botones redondeados:
+       Provincia, Municipio (con buscador; elige antes la provincia para que la lista sea más corta),
+       Tipo de centro (escuela infantil, infantil y primaria, secundaria, FP, adultos, idiomas,
+       música…; puedes elegir varios), Titularidad (pública, concertada o privada), Con email,
+       Centros nuevos y Emails nuevos. Por ejemplo, para los colegios concertados de primaria:
+       Tipo «Infantil y Primaria» y Titularidad «Privada concertada».
+     «Limpiar filtros» los quita todos.
+   - Haz clic en un centro para ver su ficha a la derecha. Desde ahí puedes copiar o escribir el
+     email, copiar el teléfono o llamar (con Enlace Móvil, Teams u otra aplicación de llamadas del
+     ordenador) y abrir la web.
+   - La ficha muestra un mapa con la situación del centro (callejero oficial del Instituto
+     Geográfico Nacional). Arrástralo para moverlo y usa + y − para acercar o alejar.
+     «Ampliar mapa» lo abre en grande con los demás centros de la lista en ese municipio: haz clic
+     en un punto para ver su ficha. «Google Maps» lo abre en el navegador.
+   - Para marcar un centro, haz clic en su casilla o en «Marcar este centro» de la ficha.
+     La casilla de la cabecera de la tabla marca o desmarca todos los de la lista.
+   - Si la ventana es estrecha, la ficha se abre aparte con doble clic.
+3. Pulsa «Descargar … marcados» o «Descargar lista» y elige dónde guardar el Excel.
+
+ACTUALIZACIÓN AUTOMÁTICA
+- Una vez por semana, mientras el programa está abierto, la lista se actualiza sola en segundo
+  plano. Arriba aparece una franja amarilla avisando: puedes seguir trabajando con normalidad.
+- Al terminar, la franja se pone verde y una ventana te dice cuántos centros nuevos y emails nuevos
+  hay. En la lista, los centros nuevos salen en verde y los emails nuevos en amarillo.
+- Para quedarte solo con los emails nuevos, pulsa «Ver emails nuevos» (o el filtro «Emails nuevos»)
+  y después «Descargar lista». Lo mismo con los centros nuevos.
+- La ficha de cada centro indica la fecha en que se añadió su email.
+- La primera vez, además, busca en el Ministerio de Educación los emails que faltan. Puede tardar
+  entre 20 y 40 minutos. Si cierras antes, sigue sola la próxima vez que abras el programa.
+- Si no hay internet, sigues trabajando con la lista que ya tienes y se vuelve a intentar cada hora.
+- Puedes lanzarla tú cuando quieras con el botón «Actualizar ahora» (abajo a la izquierda).
+- «Ver el historial de actualizaciones» muestra qué cambió en cada actualización.
+- Los centros que hayas marcado y los filtros se mantienen al actualizarse la lista.
+
+CONSEJOS
+- La lista actualizada se guarda en tu usuario de Windows (%LOCALAPPDATA%\CentrosEducativos).
+  Si cambias el programa por una versión nueva, no se pierde.
+- El programa usa el Python oficial, firmado por la Python Software Foundation, así que el
+  «Control inteligente de aplicaciones» de Windows 11 no debería bloquearlo.
+- Junto a «Centros educativos» hay archivos de Python (normalmente ocultos) que son necesarios:
+  no los borres ni los muevas.
+- El mapa necesita internet. Lo que ya has visto se guarda en el ordenador. La primera vez que
+  amplías el mapa de una ciudad grande, situar todos sus centros tarda uno o dos minutos: van
+  apareciendo poco a poco.
+- Si algo falla, se crea el archivo programa\error.log: envíalo a quien te pasó el programa o
+  ábrelo como incidencia en GitHub (dirección abajo).
+
+Los datos son públicos y oficiales (Ministerio de Educación y comunidades autónomas).
+Para enviar publicidad por email hace falta el consentimiento previo del destinatario (LSSI, art. 21).
+
+LICENCIA Y CÓDIGO FUENTE
+- Programa libre con licencia GPL-3.0 (texto completo en programa\LICENSE.txt). Incluye Python,
+  con su propia licencia (LICENSE-Python.txt).
+- Código fuente, novedades y nuevas versiones: https://github.com/Mischka99/Centros-educativos-espana
