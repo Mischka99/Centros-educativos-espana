@@ -1,9 +1,13 @@
 ﻿CENTROS EDUCATIVOS DE ESPAÑA — teléfono y email
 ================================================
 
-No hay que instalar nada.
+Hay dos versiones, con el mismo programa:
+- Instalador (CentrosEducativos.msi): doble clic y se instala para tu usuario, sin pedir permisos
+  de administrador. Ábrelo desde el menú Inicio o desde el acceso directo del escritorio. Para
+  quitarlo: Configuración > Aplicaciones, busca «Centros educativos» y pulsa Desinstalar.
+- Portable (CentrosEducativos.zip): no hay que instalar nada. Los pasos de abajo son para esta.
 
-CÓMO ABRIRLO
+CÓMO ABRIRLO (VERSIÓN PORTABLE)
 1. Botón derecho sobre el archivo ZIP > «Extraer todo». Elige un sitio fijo, por ejemplo la carpeta
    Documentos (mejor no dejarlo en Descargas si sueles vaciarla).
 2. Entra en la carpeta CentrosEducativos y haz doble clic en «Centros educativos»

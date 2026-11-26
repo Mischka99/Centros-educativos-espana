@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Instalador .msi de «Centros educativos» (WiX Toolset v5).
+
+  - Se instala para el usuario actual, sin pedir permisos de administrador, en %LOCALAPPDATA%\Programs\Centros educativos.
+    Es un paquete «por usuario o por equipo» (MSIINSTALLPERUSER=1): la forma que recomienda Windows Installer para
+    instalar por usuario.
+  - No tiene acciones personalizadas ni ejecutables propios: solo Windows Installer, de Microsoft, y el Python oficial,
+    firmado por la Python Software Foundation. Con el .msi firmado, todo lo que se ejecuta va firmado.
+  - Crea los accesos directos del menú Inicio y del escritorio, y se desinstala desde Configuración > Aplicaciones.
+  - Al instalar una versión nueva, sustituye a la anterior. La lista descargada y la configuración, que están en
+    %LOCALAPPDATA%\CentrosEducativos, se conservan.
+
+  Lo compila .github/workflows/windows.yml:
+    wix build -arch x64 -d Version=X.Y.Z -d Origen=CARPETA windows\instalador.wxs -o CentrosEducativos.msi
+  CARPETA es el paquete montado por windows\montar_paquete.py con su opción pyc: con los .pyc ya compilados,
+  Python no escribe nada en la carpeta del programa y la desinstalación no deja restos.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Centros educativos"
+           Manufacturer="Mischka99"
+           Version="$(var.Version)"
+           UpgradeCode="{18001D22-41DF-41D6-96EE-711FF715384E}"
+           Scope="perUserOrMachine"
+           Language="3082"
+           Codepage="1252"
+           Compressed="yes">
+
+    <!-- Asunto y autor del .msi: SignPath comprueba que coincidan al firmarlo (windows/FIRMA.md). -->
+    <SummaryInformation Description="Centros educativos" Manufacturer="Mischka99" />
+
+    <MajorUpgrade DowngradeErrorMessage="Ya está instalada una versión más reciente de Centros educativos." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <!-- Aplicaciones instaladas: icono, enlaces y sin la opción «Modificar», que no tiene sentido aquí. -->
+    <Icon Id="icono.ico" SourceFile="$(var.Origen)\programa\icono.ico" />
+    <Property Id="ARPPRODUCTICON" Value="icono.ico" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/Mischka99/Centros-educativos-espana" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/Mischka99/Centros-educativos-espana/issues" />
+    <Property Id="ARPNOMODIFY" Value="1" />
+
+    <!-- Por usuario, ProgramFiles6432Folder es %LOCALAPPDATA%\Programs. -->
+    <StandardDirectory Id="ProgramFiles6432Folder">
+      <Directory Id="INSTALLFOLDER" Name="Centros educativos" />
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder" />
+    <StandardDirectory Id="DesktopFolder" />
+
+    <Feature Id="Programa" Title="Centros educativos">
+      <Files Directory="INSTALLFOLDER" Include="$(var.Origen)\**" />
+
+      <Component Id="AccesosDirectos" Directory="INSTALLFOLDER">
+        <Shortcut Id="AccesoInicio" Directory="ProgramMenuFolder" Name="Centros educativos"
+                  Description="Centros educativos de España: teléfono y email"
+                  Target="[INSTALLFOLDER]Centros educativos.exe" WorkingDirectory="INSTALLFOLDER" Icon="icono.ico" />
+        <Shortcut Id="AccesoEscritorio" Directory="DesktopFolder" Name="Centros educativos"
+                  Description="Centros educativos de España: teléfono y email"
+                  Target="[INSTALLFOLDER]Centros educativos.exe" WorkingDirectory="INSTALLFOLDER" Icon="icono.ico" />
+        <!-- Los accesos directos son del usuario: la clave que los representa, también (ICE43 e ICE57). -->
+        <RegistryValue Root="HKCU" Key="Software\Centros educativos" Name="Instalado" Type="integer" Value="1"
+                       KeyPath="yes" />
+      </Component>
+
+      <!-- El programa guarda aquí el detalle de un error si no puede arrancar: que no impida borrar la carpeta. -->
+      <Component Id="LimpiezaRegistroErrores" Directory="INSTALLFOLDER" Subdirectory="programa">
+        <RemoveFile Id="QuitarErrorLog" Name="error.log" On="uninstall" />
+        <RegistryValue Root="HKMU" Key="Software\Centros educativos" Name="Limpieza" Type="integer" Value="1"
+                       KeyPath="yes" />
+      </Component>
+    </Feature>
+  </Package>
+</Wix>

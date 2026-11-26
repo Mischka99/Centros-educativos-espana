@@ -1,66 +1,62 @@
-# Paquete portable para Windows
+# Paquete de Windows
 
-Así se monta `CentrosEducativos.zip`, el paquete que se publica en Releases. Solo lleva el Python oficial de python.org, firmado por la Python Software Foundation, más archivos de texto e imágenes. No hay ningún ejecutable propio, así que el Control inteligente de aplicaciones de Windows 11 no lo bloquea.
+Cada versión publica dos archivos con el mismo contenido:
+
+- **`CentrosEducativos.msi`:** instalador. Instala para el usuario, sin permisos de administrador, en `%LOCALAPPDATA%\Programs\Centros educativos`, y crea los accesos directos del menú Inicio y del escritorio. Se desinstala desde Configuración > Aplicaciones.
+- **`CentrosEducativos.zip`:** portable. Se descomprime en cualquier carpeta y se abre con doble clic.
+
+Los dos llevan solo el Python oficial de python.org, firmado por la Python Software Foundation y Microsoft, más archivos de texto e imágenes. No hay ningún ejecutable propio, así que el Control inteligente de aplicaciones de Windows 11 no bloquea el programa. El `.msi` es la excepción: hay que firmarlo, y eso explica [`FIRMA.md`](FIRMA.md).
+
+## Compilación automática
+
+[`.github/workflows/windows.yml`](../.github/workflows/windows.yml) lo hace todo en GitHub, en cada cambio y en cada versión:
+
+1. Descarga de python.org los MSI oficiales `core`, `exe`, `lib` y `tcltk` de Python 3.13.17 (64 bits) y comprueba su SHA-256 y su firma.
+2. Los extrae con `msiexec /a`.
+3. Monta el paquete y el zip con [`montar_paquete.py`](montar_paquete.py):
+   - Quita lo que el programa no usa: `python.exe`, IDLE, `ensurepip`, `turtledemo`, las bibliotecas de compilación de Tcl/Tk y algunos iconos. Así, los únicos ejecutables que quedan son los 37 firmados de Python.
+   - Renombra `pythonw.exe` a `Centros educativos.exe` (la firma sigue siendo válida) y `LICENSE.txt` a `LICENSE-Python.txt`.
+   - Instala openpyxl, et_xmlfile y xlrd con la versión y el hash fijados en [`requisitos.txt`](requisitos.txt).
+   - Copia [`sitecustomize.py`](sitecustomize.py) en `Lib\site-packages`, el programa en `programa\` y [`LEEME.txt`](LEEME.txt) en la raíz.
+   - En el zip, marca como ocultos los archivos de Python para que solo se vean «Centros educativos», «LEEME» y «programa».
+4. Comprueba que todos los `.exe`, `.dll` y `.pyd` tienen una firma válida de la Python Software Foundation o de Microsoft.
+5. Compila el `.msi` con WiX Toolset 5 a partir de [`instalador.wxs`](instalador.wxs). Para el `.msi`, el paquete lleva los `.py` ya compilados: así Python no escribe nada en la carpeta del programa y la desinstalación no deja restos.
+6. Marca el `.msi` como instalable sin administrador y lo valida (ICE).
+7. Lo instala, abre el programa, comprueba que arranca sin errores y lo desinstala.
+8. Al publicar una versión, firma el `.msi` con SignPath (si está configurado) y adjunta el zip y el `.msi` a la versión.
 
 ## Estructura
 
 ```
-CentrosEducativos/
+CentrosEducativos/           ← con el .msi: %LOCALAPPDATA%\Programs\Centros educativos
 ├── Centros educativos.exe   ← pythonw.exe oficial con otro nombre
-├── LEEME.txt                ← windows/LEEME.txt
+├── LEEME.txt
 ├── python313.dll, python3.dll, vcruntime140.dll, vcruntime140_1.dll, LICENSE-Python.txt
 ├── DLLs/  tcl/  Lib/        ← biblioteca estándar, Tkinter y Tcl/Tk
 │   └── Lib/site-packages/   ← openpyxl, et_xmlfile, xlrd y sitecustomize.py
 └── programa/                ← el programa, la lista, README.md y LICENSE.txt
 ```
 
-## Pasos (en Windows)
+## Compilar a mano
 
-1. Descarga el instalador oficial de 64 bits de Python 3.13 desde python.org. La versión 1.0.0 usa `python-3.13.17-amd64.exe`.
-2. Descarga sus paquetes MSI sin instalar nada:
-   ```
-   python-3.13.17-amd64.exe /layout C:\py313
-   ```
-3. Extrae en la carpeta del paquete los MSI `core`, `exe`, `lib` y `tcltk` con una instalación administrativa:
-   ```
-   msiexec /a C:\py313\core.msi TARGETDIR=C:\CentrosEducativos /qn
-   msiexec /a C:\py313\exe.msi TARGETDIR=C:\CentrosEducativos /qn
-   msiexec /a C:\py313\lib.msi TARGETDIR=C:\CentrosEducativos /qn
-   msiexec /a C:\py313\tcltk.msi TARGETDIR=C:\CentrosEducativos /qn
-   ```
-   `msiexec` deja una copia de cada `.msi` en esa carpeta: bórralas.
-4. Quita lo que el programa no usa. Así, los únicos ejecutables que quedan son los 37 firmados de Python:
-   - `python.exe` y `NEWS.txt`.
-   - `DLLs\py.ico`, `DLLs\pyc.ico` y `DLLs\pyd.ico`.
-   - La carpeta `libs`.
-   - `Lib\ensurepip`, `Lib\idlelib` y `Lib\turtledemo`.
-   - `tcl\nmake` (lleva un `.exe` sin firmar que solo sirve para compilar), los `tcl\*.lib` y los `tcl\*.sh`.
-5. Cambia dos nombres:
-   - `pythonw.exe` pasa a llamarse `Centros educativos.exe`. La firma sigue siendo válida, porque cambiar el nombre no modifica el archivo.
-   - `LICENSE.txt` pasa a llamarse `LICENSE-Python.txt`.
-6. Añade las dependencias, que son Python puro, con cualquier Python que tengas instalado:
-   ```
-   py -m pip install --target C:\CentrosEducativos\Lib\site-packages --no-compile openpyxl==3.1.5 xlrd==2.0.2
-   ```
-   pip instala también et_xmlfile, que necesita openpyxl (la versión 1.0.0 lleva et_xmlfile 2.0.0).
-7. Copia `windows\sitecustomize.py` en `Lib\site-packages`.
-8. Crea la carpeta `programa\` y copia en ella, desde este repositorio:
-   - `centros_educativos.py`, `centros_gui.pyw`, `interfaz.py`, `mapa.py`, `icono.ico`, `icono.png` y `README.md`.
-   - Las carpetas `img\` y `datos\`.
-   - `LICENSE`, con el nombre `LICENSE.txt`.
+En Windows, con Python 3.13:
 
-   Copia también `windows\LEEME.txt` en la raíz del paquete.
-9. Opcional: marca como ocultos los archivos de Python para que la carpeta solo muestre «Centros educativos», «LEEME» y «programa»:
-   ```
-   attrib +h C:\CentrosEducativos\*.dll
-   attrib +h C:\CentrosEducativos\LICENSE-Python.txt
-   attrib +h C:\CentrosEducativos\DLLs
-   attrib +h C:\CentrosEducativos\Lib
-   attrib +h C:\CentrosEducativos\tcl
-   ```
-10. Comprime la carpeta `CentrosEducativos`. Comprueba antes que no quede ninguna carpeta `__pycache__`.
+```
+mkdir C:\py313
+:: Descarga en C:\py313 los MSI core, exe, lib y tcltk de https://www.python.org/ftp/python/3.13.17/amd64/
+for %m in (core exe lib tcltk) do msiexec /a C:\py313\%m.msi TARGETDIR=C:\py313\python /qn
+py windows\montar_paquete.py C:\py313\python C:\paquete --zip CentrosEducativos.zip
+```
 
-Desde Linux se puede hacer lo mismo. `cabextract` saca los MSI del instalador con nombres como `a0` o `a2`, y el manifiesto `0` indica cuál es cada uno (`core`, `exe`, `lib`, `tcltk`…). Después, `msiextract` (del paquete msitools) los extrae.
+Para el `.msi`, monta el paquete con `--pyc`, compílalo con WiX 5 y márcalo como instalable sin administrador, como en el paso «Marcar el .msi como instalable sin administrador» del workflow:
+
+```
+py windows\montar_paquete.py C:\py313\python C:\paquete-msi --pyc
+dotnet tool install --global wix --version 5.0.2
+wix build -arch x64 -d Version=1.2.0 -d Origen=C:\paquete-msi windows\instalador.wxs -o CentrosEducativos.msi
+```
+
+En Linux se puede montar el zip extrayendo los MSI con `msiextract` (paquete msitools) en lugar de `msiexec /a`. El `.msi` solo se puede compilar en Windows.
 
 ## Cómo arranca
 

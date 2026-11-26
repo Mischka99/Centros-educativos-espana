@@ -1,0 +1,336 @@
+# Paquete de Windows: el zip portable y el instalador .msi, compilados a partir del Python oficial de python.org.
+#
+# - En cada cambio (push a una rama o pull request): compila, comprueba que todos los ejecutables van firmados,
+#   instala el .msi, abre el programa, lo desinstala y comprueba que no quedan restos.
+# - Al publicar una versión (Release con etiqueta vX.Y.Z): además adjunta CentrosEducativos.zip y
+#   CentrosEducativos.msi a la versión. Si SignPath está configurado (windows/FIRMA.md), antes firma el .msi:
+#   la firma espera a que la apruebes en SignPath.
+name: Paquete de Windows
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'release' }}
+
+env:
+  PYTHON_VERSION: "3.13.17"
+  # SHA-256 de los MSI oficiales de Python (son los mismos que van dentro de python-3.13.17-amd64.exe).
+  PYTHON_MSI_SHA256: >-
+    core=592af28b25b8142111b3600c82792f778ffb522b12768170a205fb90e40c72e8
+    exe=985e3ce8b3f0a432fdadfa5aacac506635816c5d24a36fd6222b9e390da279d5
+    lib=7d047ae8b57857e33c3827fe77b052297e61bdab6b3fd4fecd343c3c30e3a8ff
+    tcltk=ae3e5f9dd998b36d14655cd3444d0af906c1849c60aee40994eeb1e460a3cabf
+  WIX_VERSION: "5.0.2"
+
+jobs:
+  compilar:
+    name: Compilar y probar
+    runs-on: windows-2025
+    timeout-minutes: 45
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      msi-artifact-id: ${{ steps.subir-msi.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Versión
+        id: version
+        shell: pwsh
+        env:
+          ETIQUETA: ${{ github.event.release.tag_name }}
+        run: |
+          if ($env:GITHUB_EVENT_NAME -eq 'release') {
+            $v = $env:ETIQUETA -replace '^v', ''
+            if ($v -notmatch '^\d{1,3}\.\d{1,3}\.\d{1,5}$') {
+              throw "La etiqueta de la versión debe ser vX.Y.Z (por ejemplo v1.2.0) y es «$env:ETIQUETA»"
+            }
+          } else {
+            $v = "0.0.$env:GITHUB_RUN_NUMBER"
+          }
+          "version=$v" >> $env:GITHUB_OUTPUT
+          "Versión: $v"
+
+      - name: Descargar el Python oficial y comprobar su hash y su firma
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dir = Join-Path $env:RUNNER_TEMP 'msi'
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          $esperado = @{}
+          foreach ($par in ($env:PYTHON_MSI_SHA256 -split '\s+' | Where-Object { $_ })) {
+            $nombre, $hash = $par -split '='
+            $esperado[$nombre] = $hash
+          }
+          foreach ($m in 'core', 'exe', 'lib', 'tcltk') {
+            $archivo = Join-Path $dir "$m.msi"
+            Invoke-WebRequest "https://www.python.org/ftp/python/$env:PYTHON_VERSION/amd64/$m.msi" -OutFile $archivo
+            $hash = (Get-FileHash $archivo -Algorithm SHA256).Hash.ToLower()
+            if ($hash -ne $esperado[$m]) { throw "$m.msi: SHA-256 $hash; se esperaba $($esperado[$m])" }
+            $firma = Get-AuthenticodeSignature $archivo
+            if ($firma.Status -ne 'Valid' -or $firma.SignerCertificate.Subject -notmatch 'Python Software Foundation') {
+              throw "$m.msi: firma $($firma.Status) de $($firma.SignerCertificate.Subject)"
+            }
+            "$m.msi: hash y firma de la Python Software Foundation correctos"
+          }
+
+      - name: Extraer los MSI de Python
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dir = Join-Path $env:RUNNER_TEMP 'msi'
+          $destino = Join-Path $env:RUNNER_TEMP 'python'
+          foreach ($m in 'core', 'exe', 'lib', 'tcltk') {
+            $registro = Join-Path $env:RUNNER_TEMP "extraer-$m.log"
+            $p = Start-Process msiexec.exe -Wait -PassThru -ArgumentList @(
+              '/a', "`"$dir\$m.msi`"", "TARGETDIR=`"$destino`"", '/qn', '/l*v', "`"$registro`"")
+            if ($p.ExitCode -ne 0) {
+              Get-Content $registro -Tail 40
+              throw "msiexec /a $m.msi: código $($p.ExitCode)"
+            }
+          }
+          Get-ChildItem $destino | Format-Table Name, Length
+
+      - name: Montar el paquete y el zip
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force salida | Out-Null
+          python windows/montar_paquete.py "$env:RUNNER_TEMP\python" "$env:RUNNER_TEMP\paquete" --zip salida\CentrosEducativos.zip
+          if ($LASTEXITCODE -ne 0) { throw "montar_paquete.py (zip): código $LASTEXITCODE" }
+          python windows/montar_paquete.py "$env:RUNNER_TEMP\python" "$env:RUNNER_TEMP\paquete-msi" --pyc
+          if ($LASTEXITCODE -ne 0) { throw "montar_paquete.py (msi): código $LASTEXITCODE" }
+
+      - name: Comprobar que todos los ejecutables van firmados
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($raiz in "$env:RUNNER_TEMP\paquete", "$env:RUNNER_TEMP\paquete-msi") {
+            $n = 0
+            $mal = @()
+            foreach ($f in Get-ChildItem $raiz -Recurse -File) {
+              $s = [System.IO.File]::OpenRead($f.FullName)
+              $cabecera = New-Object byte[] 2
+              $null = $s.Read($cabecera, 0, 2)
+              $s.Close()
+              if ($cabecera[0] -ne 0x4D -or $cabecera[1] -ne 0x5A) { continue }  # no es un ejecutable (MZ)
+              $n++
+              $firma = Get-AuthenticodeSignature $f.FullName
+              if ($firma.Status -ne 'Valid' -or
+                  $firma.SignerCertificate.Subject -notmatch 'O=(Python Software Foundation|Microsoft Corporation)') {
+                $mal += "$($f.FullName): $($firma.Status) $($firma.SignerCertificate.Subject)"
+              }
+            }
+            if ($mal) { $mal; throw "Hay ejecutables sin firma válida en $raiz" }
+            "$raiz`: $n ejecutables, todos firmados por la Python Software Foundation o Microsoft"
+          }
+
+      - name: Instalar WiX
+        shell: pwsh
+        run: |
+          dotnet tool install --global wix --version $env:WIX_VERSION
+          if ($LASTEXITCODE -ne 0) { throw "No se ha podido instalar WiX $env:WIX_VERSION" }
+          "$env:USERPROFILE\.dotnet\tools" >> $env:GITHUB_PATH
+
+      - name: Compilar el instalador .msi
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          wix build -arch x64 -pdbtype none -d "Version=$env:VERSION" -d "Origen=$env:RUNNER_TEMP\paquete-msi" `
+            windows\instalador.wxs -o salida\CentrosEducativos.msi
+          if ($LASTEXITCODE -ne 0) { throw "wix build: código $LASTEXITCODE" }
+
+      # WiX no marca los paquetes «por usuario o por equipo» como instalables sin administrador. Sin esta marca
+      # (bit 3 de «Word Count»), Windows pide permisos de administrador aunque se instale para el usuario.
+      - name: Marcar el .msi como instalable sin administrador
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $msi = (Resolve-Path salida\CentrosEducativos.msi).Path
+          $wi = New-Object -ComObject WindowsInstaller.Installer
+          function Llamar($objeto, $metodo, $tipo, $argumentos) {
+            $objeto.GetType().InvokeMember($metodo, $tipo, $null, $objeto, $argumentos)
+          }
+          $db = Llamar $wi 'OpenDatabase' 'InvokeMethod' @($msi, 1)  # 1 = abrir para modificar
+          $resumen = Llamar $db 'SummaryInformation' 'GetProperty' @(20)
+          $palabras = [int](Llamar $resumen 'Property' 'GetProperty' @(15))
+          Llamar $resumen 'Property' 'SetProperty' @(15, ($palabras -bor 8)) | Out-Null
+          Llamar $resumen 'Persist' 'InvokeMethod' $null | Out-Null
+          Llamar $db 'Commit' 'InvokeMethod' $null | Out-Null
+          [void][System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($resumen)
+          [void][System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($db)
+          [void][System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($wi)
+          [GC]::Collect(); [GC]::WaitForPendingFinalizers()
+          "Word Count: $palabras -> $($palabras -bor 8)"
+
+      - name: Validar el .msi (ICE)
+        shell: pwsh
+        run: |
+          wix msi validate salida\CentrosEducativos.msi
+          if ($LASTEXITCODE -ne 0) { throw "wix msi validate: código $LASTEXITCODE" }
+          Get-ChildItem salida | Format-Table Name, Length
+
+      - name: Comprobar el .msi (instalación por usuario y metadatos)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $msi = (Resolve-Path salida\CentrosEducativos.msi).Path
+          $wi = New-Object -ComObject WindowsInstaller.Installer
+          function Llamar($objeto, $metodo, $tipo, $argumentos) {
+            $objeto.GetType().InvokeMember($metodo, $tipo, $null, $objeto, $argumentos)
+          }
+          $db = Llamar $wi 'OpenDatabase' 'InvokeMethod' @($msi, 0)
+          function Propiedad($nombre) {
+            $vista = Llamar $db 'OpenView' 'InvokeMethod' @("SELECT ``Value`` FROM ``Property`` WHERE ``Property``='$nombre'")
+            Llamar $vista 'Execute' 'InvokeMethod' $null | Out-Null
+            $fila = Llamar $vista 'Fetch' 'InvokeMethod' $null
+            if ($fila) { Llamar $fila 'StringData' 'GetProperty' @(1) }
+          }
+          $resumen = Llamar $db 'SummaryInformation' 'GetProperty' @(0)
+          $asunto = Llamar $resumen 'Property' 'GetProperty' @(3)
+          $autor = Llamar $resumen 'Property' 'GetProperty' @(4)
+          $palabras = [int](Llamar $resumen 'Property' 'GetProperty' @(15))
+          "ALLUSERS=$(Propiedad 'ALLUSERS') MSIINSTALLPERUSER=$(Propiedad 'MSIINSTALLPERUSER') ProductVersion=$(Propiedad 'ProductVersion')"
+          "Asunto (subject): $asunto · Autor (author): $autor · Word Count: $palabras"
+          if ((Propiedad 'ALLUSERS') -ne '2' -or (Propiedad 'MSIINSTALLPERUSER') -ne '1') { throw 'El .msi no instala por usuario' }
+          if (-not ($palabras -band 8)) { throw 'El .msi pide permisos de administrador (Word Count sin el bit 8)' }
+          "::notice title=Metadatos del .msi para SignPath::subject=$asunto; author=$autor"
+
+      - name: Probar la instalación, el arranque y la desinstalación
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $msi = (Resolve-Path salida\CentrosEducativos.msi).Path
+          $dir = Join-Path $env:LOCALAPPDATA 'Programs\Centros educativos'
+          $exe = Join-Path $dir 'Centros educativos.exe'
+          $menu = Join-Path ([Environment]::GetFolderPath('Programs')) 'Centros educativos.lnk'
+          $escritorio = Join-Path ([Environment]::GetFolderPath('Desktop')) 'Centros educativos.lnk'
+          function Msiexec($argumentos, $registro, $que) {
+            $p = Start-Process msiexec.exe -Wait -PassThru -ArgumentList "$argumentos /qn /l*v `"$registro`""
+            if ($p.ExitCode -ne 0) { Get-Content $registro -Tail 60; throw "$que`: código $($p.ExitCode)" }
+          }
+          $wi = New-Object -ComObject WindowsInstaller.Installer
+          function Llamar($objeto, $metodo, $tipo, $argumentos) {
+            $objeto.GetType().InvokeMember($metodo, $tipo, $null, $objeto, $argumentos)
+          }
+          $db = Llamar $wi 'OpenDatabase' 'InvokeMethod' @($msi, 0)
+          $vista = Llamar $db 'OpenView' 'InvokeMethod' @("SELECT ``Value`` FROM ``Property`` WHERE ``Property``='ProductCode'")
+          Llamar $vista 'Execute' 'InvokeMethod' $null | Out-Null
+          $codigo = Llamar (Llamar $vista 'Fetch' 'InvokeMethod' $null) 'StringData' 'GetProperty' @(1)
+          Llamar $vista 'Close' 'InvokeMethod' $null | Out-Null
+          [void][System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($vista)
+          [void][System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($db)
+          [GC]::Collect(); [GC]::WaitForPendingFinalizers()
+
+          Msiexec "/i `"$msi`"" "$env:RUNNER_TEMP\instalar.log" 'Instalación'
+          foreach ($f in $exe, $menu, $escritorio) { if (-not (Test-Path $f)) { throw "Tras instalar no está $f" } }
+          $estado = Llamar $wi 'ProductState' 'GetProperty' @($codigo)
+          if ($estado -ne 5) { throw "Windows Installer no lo da por instalado (estado $estado)" }
+          $tipo = Llamar $wi 'ProductInfo' 'GetProperty' @($codigo, 'AssignmentType')
+          if ($tipo -ne '0') { throw "No se ha instalado para el usuario (AssignmentType $tipo)" }
+          "Instalado para el usuario en $dir (versión $(Llamar $wi 'ProductInfo' 'GetProperty' @($codigo, 'VersionString')))"
+
+          $antes = Get-ChildItem $dir -Recurse -File | ForEach-Object FullName
+          $programa = Start-Process $exe -WorkingDirectory $dir -PassThru
+          Start-Sleep -Seconds 40
+          $errores = Join-Path $dir 'programa\error.log'
+          if (Test-Path $errores) { Get-Content $errores; throw 'El programa ha escrito programa\error.log' }
+          if ($programa.HasExited) { throw "El programa se ha cerrado solo (código $($programa.ExitCode))" }
+          Stop-Process -Id $programa.Id -Force
+          Start-Sleep -Seconds 2
+          $despues = Get-ChildItem $dir -Recurse -File | ForEach-Object FullName
+          $nuevos = Compare-Object $antes $despues | Where-Object SideIndicator -eq '=>' | ForEach-Object InputObject
+          if ($nuevos) { $nuevos; throw 'El programa ha escrito archivos en su carpeta: la desinstalación dejaría restos' }
+          'El programa arranca y no escribe nada en su carpeta'
+
+          Msiexec "/x `"$msi`"" "$env:RUNNER_TEMP\desinstalar.log" 'Desinstalación'
+          $estado = Llamar $wi 'ProductState' 'GetProperty' @($codigo)
+          if ($estado -ne -1) { throw "Tras desinstalar, Windows Installer lo sigue viendo (estado $estado)" }
+          foreach ($f in $dir, $menu, $escritorio) {
+            if (Test-Path $f) { Get-ChildItem $f -Recurse | Select-Object -First 30 FullName; throw "Tras desinstalar queda $f" }
+          }
+          'Instalación, arranque y desinstalación correctos'
+
+      - name: Subir el zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: CentrosEducativos-zip
+          path: salida/CentrosEducativos.zip
+          if-no-files-found: error
+
+      - name: Subir el .msi sin firmar
+        id: subir-msi
+        uses: actions/upload-artifact@v4
+        with:
+          name: CentrosEducativos-msi
+          path: salida/CentrosEducativos.msi
+          if-no-files-found: error
+
+  publicar:
+    name: Firmar y adjuntar a la versión
+    needs: compilar
+    if: github.event_name == 'release'
+    runs-on: windows-2025
+    timeout-minutes: 330
+    permissions:
+      contents: write  # subir los archivos a la versión
+      actions: read    # SignPath descarga el .msi sin firmar de esta ejecución
+    steps:
+      - name: Descargar el zip y el .msi
+        uses: actions/download-artifact@v4
+        with:
+          path: descargas
+          merge-multiple: true
+
+      - name: Firmar el .msi con SignPath (hay que aprobarlo en SignPath)
+        id: firma
+        if: vars.SIGNPATH_ORGANIZATION_ID != ''
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          github-artifact-id: ${{ needs.compilar.outputs.msi-artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 18000
+          output-artifact-directory: firmado
+
+      - name: Comprobar la firma
+        if: steps.firma.outcome == 'success'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $firma = Get-AuthenticodeSignature firmado\CentrosEducativos.msi
+          if ($firma.Status -ne 'Valid') { throw "El .msi firmado no tiene una firma válida: $($firma.Status)" }
+          Copy-Item firmado\CentrosEducativos.msi descargas\CentrosEducativos.msi -Force
+          "Firmado por: $($firma.SignerCertificate.Subject)"
+
+      - name: Avisar de que el .msi va sin firmar
+        if: vars.SIGNPATH_ORGANIZATION_ID == ''
+        shell: pwsh
+        run: '"::warning title=.msi sin firmar::SignPath no está configurado (windows/FIRMA.md): el .msi se publica sin firmar."'
+
+      - name: Adjuntar el zip y el .msi a la versión
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ETIQUETA: ${{ github.event.release.tag_name }}
+        run: |
+          gh release upload $env:ETIQUETA descargas\CentrosEducativos.zip descargas\CentrosEducativos.msi --clobber --repo $env:GITHUB_REPOSITORY
+          if ($LASTEXITCODE -ne 0) { throw "gh release upload: código $LASTEXITCODE" }

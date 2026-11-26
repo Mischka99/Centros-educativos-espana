@@ -4,7 +4,7 @@ Directorio de los **33.555 centros educativos no universitarios de España** con
 
 El repositorio incluye:
 
-- **Un programa para Windows que no hay que instalar.** Sirve para buscar y filtrar centros, ver la ficha de cada uno con un mapa, marcarlos y descargarlos a Excel. La lista se actualiza sola cada semana.
+- **Un programa para Windows**, con instalador o portable. Sirve para buscar y filtrar centros, ver la ficha de cada uno con un mapa, marcarlos y descargarlos a Excel. La lista se actualiza sola cada semana.
 - **Un script de consola** (`centros_educativos.py`) que genera el Excel o el CSV de una o varias comunidades.
 - **La lista ya descargada** (`datos/centros_inicial.json.gz`, a 23/11/2026).
 
@@ -12,11 +12,25 @@ El repositorio incluye:
 
 ## Descargar y usar (Windows)
 
-1. Descarga `CentrosEducativos.zip` de la [última versión](https://github.com/Mischka99/Centros-educativos-espana/releases/latest).
-2. Descomprímelo: botón derecho > «Extraer todo».
-3. Entra en la carpeta y haz doble clic en «Centros educativos».
+Descarga uno de estos dos archivos de la [última versión](https://github.com/Mischka99/Centros-educativos-espana/releases/latest). Funcionan en Windows 10 y 11 de 64 bits, y no hace falta instalar Python ni nada más.
 
-No hace falta instalar Python ni nada más. El programa abre al instante, porque la lista de toda España va incluida, y la primera vez crea un acceso directo en el escritorio. Tienes las instrucciones para el usuario en [`windows/LEEME.txt`](windows/LEEME.txt).
+**Instalador: `CentrosEducativos.msi`**
+
+1. Haz doble clic en el archivo. Se instala para tu usuario, sin pedir permisos de administrador.
+2. Abre «Centros educativos» desde el menú Inicio o desde el acceso directo del escritorio.
+
+Para desinstalarlo, ve a Configuración > Aplicaciones, busca «Centros educativos» y pulsa Desinstalar.
+
+Mientras el instalador no vaya firmado (ver [Code signing policy](#code-signing-policy)), el Control inteligente de aplicaciones de Windows 11 puede bloquearlo. En ese caso, usa el zip.
+
+**Portable: `CentrosEducativos.zip`**
+
+1. Descomprímelo: botón derecho > «Extraer todo».
+2. Entra en la carpeta y haz doble clic en «Centros educativos». La primera vez crea un acceso directo en el escritorio.
+
+Para quitarlo, borra la carpeta y el acceso directo. Tienes las instrucciones para el usuario en [`windows/LEEME.txt`](windows/LEEME.txt).
+
+El programa abre al instante, porque la lista de toda España va incluida. La lista actualizada se guarda en `%LOCALAPPDATA%\CentrosEducativos`: desinstalar el programa no la borra, por si lo vuelves a instalar. Puedes borrar esa carpeta a mano.
 
 ## Qué hace el programa
 
@@ -71,8 +85,9 @@ El Control inteligente de aplicaciones de Windows 11 bloquea los `.bat` y `.lnk`
 - El paquete solo lleva el Python oficial de python.org: sus 37 `.exe`/`.dll`/`.pyd` están firmados por la Python Software Foundation o por Microsoft.
 - «Centros educativos.exe» es el `pythonw.exe` oficial con otro nombre. [`windows/sitecustomize.py`](windows/sitecustomize.py) arranca el programa.
 - No hay ningún `.bat`, y el acceso directo se crea con la API de Windows.
+- El instalador `.msi` no tiene acciones personalizadas: lo ejecuta Windows Installer, de Microsoft. Solo falta firmar el propio `.msi` (ver [Code signing policy](#code-signing-policy)).
 
-Cómo se monta el paquete: [`windows/README.md`](windows/README.md).
+GitHub Actions compila el zip y el `.msi` a partir de los archivos oficiales de python.org y los prueba en Windows. Cómo se montan: [`windows/README.md`](windows/README.md).
 
 ## Script de consola
 
@@ -145,7 +160,8 @@ El tipo de centro se deduce de la denominación oficial, escrita en castellano, 
 | `img/<escala>/` | Iconos PNG para cada escalado de pantalla (100 % a 300 %). |
 | `generar_imagenes.py` | Vuelve a generar los iconos. Solo hace falta si cambian, y necesita `rsvg-convert` y Pillow. |
 | `datos/centros_inicial.json.gz` | La lista incluida con el programa. |
-| `windows/` | Guía para el usuario, arranque y montaje del paquete para Windows. |
+| `windows/` | Guía para el usuario, arranque, montaje del paquete (`montar_paquete.py`), instalador (`instalador.wxs`) y firma (`FIRMA.md`). |
+| `.github/workflows/windows.yml` | Compilación automática del zip y del `.msi`, con sus pruebas y la firma. |
 
 ## Problemas frecuentes
 
@@ -159,6 +175,32 @@ El tipo de centro se deduce de la denominación oficial, escrita en castellano, 
 - Son contactos institucionales publicados por las administraciones. Aun así, algunos emails de centros privados pequeños pueden identificar a una persona: trátalos de acuerdo con el RGPD.
 - Para enviar comunicaciones comerciales por email, la **LSSI (art. 21)** exige el consentimiento previo del destinatario.
 - El script y el programa hacen pausas y guardan en caché para no cargar los servidores públicos. No subas `--hilos` sin necesidad.
+
+## Privacidad
+
+El programa no recoge ni envía datos tuyos ni de tu equipo: no tiene publicidad, analítica ni telemetría. Todo lo que guarda se queda en tu equipo, en `%LOCALAPPDATA%\CentrosEducativos`.
+
+Solo se conecta a internet para esto:
+
+- **Actualizar la lista** (sola cada 7 días, o cuando pulsas «Actualizar ahora»): descarga los directorios públicos de centros del Ministerio de Educación y de las comunidades autónomas.
+- **Mostrar el mapa:** descarga el plano del Instituto Geográfico Nacional y envía a CartoCiudad las direcciones de los centros que se ven en el mapa, que son datos públicos de los centros.
+- **Lo que pulsas:** abrir la web de un centro o Google Maps en el navegador, escribir un email o llamar con tus aplicaciones.
+
+El instalador no se conecta a internet.
+
+## Code signing policy
+
+Free code signing provided by [SignPath.io](https://signpath.io), certificate by [SignPath Foundation](https://signpath.org).
+
+Pendiente de aprobación por SignPath Foundation: hasta entonces, el `.msi` se publica sin firmar.
+
+- **Qué se firma:** el instalador `CentrosEducativos.msi` de cada versión. Lo compila GitHub Actions a partir de este repositorio ([`.github/workflows/windows.yml`](.github/workflows/windows.yml)), y cada firma se aprueba a mano.
+- **Qué no se firma con este certificado:** los ejecutables del Python oficial que lleva dentro, que ya vienen firmados por la Python Software Foundation y Microsoft.
+- **Equipo:**
+  - Autores y revisores: [Mischka99](https://github.com/Mischka99)
+  - Aprobación de cada firma: [Mischka99](https://github.com/Mischka99)
+
+Cómo se configura: [`windows/FIRMA.md`](windows/FIRMA.md).
 
 ## Licencia
 
