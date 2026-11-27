@@ -1,10 +1,11 @@
-# Paquete de Windows: el zip portable y el instalador .msi, compilados a partir del Python oficial de python.org.
+# Paquete de Windows: el zip portable, el instalador .msi y el paquete .msix de la Microsoft Store, compilados a partir
+# del Python oficial de python.org.
 #
 # - En cada cambio (push a una rama o pull request): compila, comprueba que todos los ejecutables van firmados,
-#   instala el .msi, abre el programa, lo desinstala y comprueba que no quedan restos.
+#   instala el .msi y el .msix, abre el programa, los desinstala y comprueba que no quedan restos.
 # - Al publicar una versión (Release con etiqueta vX.Y.Z): además adjunta CentrosEducativos.zip y
-#   CentrosEducativos.msi a la versión. Si SignPath está configurado (windows/FIRMA.md), antes firma el .msi:
-#   la firma espera a que la apruebes en SignPath.
+#   CentrosEducativos.msi a la versión. El .msix queda en los artefactos de la ejecución, para subirlo a Partner Center
+#   (windows/TIENDA.md): la Tienda lo firma al publicarlo.
 name: Paquete de Windows
 
 on:
@@ -36,10 +37,7 @@ jobs:
   compilar:
     name: Compilar y probar
     runs-on: windows-2025
-    timeout-minutes: 45
-    outputs:
-      version: ${{ steps.version.outputs.version }}
-      msi-artifact-id: ${{ steps.subir-msi.outputs.artifact-id }}
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
 
@@ -104,8 +102,16 @@ jobs:
           }
           Get-ChildItem $destino | Format-Table Name, Length
 
-      - name: Montar el paquete y el zip
+      # La identidad del paquete de la Tienda sale de las variables del repositorio (Settings > Secrets and variables >
+      # Actions > Variables), copiadas de Partner Center (windows/TIENDA.md). Sin ellas, se usa una identidad de prueba.
+      - name: Montar los paquetes (zip, .msi y Microsoft Store)
         shell: pwsh
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          STORE_IDENTITY_NAME: ${{ vars.STORE_IDENTITY_NAME }}
+          STORE_PUBLISHER: ${{ vars.STORE_PUBLISHER }}
+          STORE_PUBLISHER_DISPLAY_NAME: ${{ vars.STORE_PUBLISHER_DISPLAY_NAME }}
+          STORE_DISPLAY_NAME: ${{ vars.STORE_DISPLAY_NAME }}
         run: |
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Force salida | Out-Null
@@ -113,12 +119,19 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "montar_paquete.py (zip): código $LASTEXITCODE" }
           python windows/montar_paquete.py "$env:RUNNER_TEMP\python" "$env:RUNNER_TEMP\paquete-msi" --pyc
           if ($LASTEXITCODE -ne 0) { throw "montar_paquete.py (msi): código $LASTEXITCODE" }
+          $argumentos = @("$env:RUNNER_TEMP\paquete-msi", "$env:RUNNER_TEMP\paquete-msix", '--version', $env:VERSION)
+          if ($env:STORE_IDENTITY_NAME) { $argumentos += '--nombre', $env:STORE_IDENTITY_NAME }
+          if ($env:STORE_PUBLISHER) { $argumentos += '--editor', $env:STORE_PUBLISHER }
+          if ($env:STORE_PUBLISHER_DISPLAY_NAME) { $argumentos += '--editor-visible', $env:STORE_PUBLISHER_DISPLAY_NAME }
+          if ($env:STORE_DISPLAY_NAME) { $argumentos += '--nombre-visible', $env:STORE_DISPLAY_NAME }
+          python windows/montar_msix.py @argumentos
+          if ($LASTEXITCODE -ne 0) { throw "montar_msix.py: código $LASTEXITCODE" }
 
       - name: Comprobar que todos los ejecutables van firmados
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          foreach ($raiz in "$env:RUNNER_TEMP\paquete", "$env:RUNNER_TEMP\paquete-msi") {
+          foreach ($raiz in "$env:RUNNER_TEMP\paquete", "$env:RUNNER_TEMP\paquete-msi", "$env:RUNNER_TEMP\paquete-msix") {
             $n = 0
             $mal = @()
             foreach ($f in Get-ChildItem $raiz -Recurse -File) {
@@ -209,7 +222,6 @@ jobs:
           "Asunto (subject): $asunto · Autor (author): $autor · Word Count: $palabras"
           if ((Propiedad 'ALLUSERS') -ne '2' -or (Propiedad 'MSIINSTALLPERUSER') -ne '1') { throw 'El .msi no instala por usuario' }
           if (-not ($palabras -band 8)) { throw 'El .msi pide permisos de administrador (Word Count sin el bit 8)' }
-          "::notice title=Metadatos del .msi para SignPath::subject=$asunto; author=$autor"
 
       - name: Probar la instalación, el arranque y la desinstalación
         shell: pwsh
@@ -266,6 +278,167 @@ jobs:
           }
           'Instalación, arranque y desinstalación correctos'
 
+      # resources.pri dice a Windows qué icono usar en cada escalado de pantalla. Se indexa solo Assets\ (en una
+      # carpeta aparte): el resto del paquete son archivos del programa, no recursos.
+      - name: Crear el .msix de la Microsoft Store
+        id: msix
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $carpeta = Join-Path $env:RUNNER_TEMP 'paquete-msix'
+          $kits = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\bin'
+          $sdk = Get-ChildItem $kits -Directory |
+            Where-Object { $_.Name -match '^10(\.\d+){3}$' -and (Test-Path (Join-Path $_.FullName 'x64\makeappx.exe')) } |
+            Sort-Object { [version]$_.Name } -Descending | Select-Object -First 1
+          if (-not $sdk) { throw "No está makeappx.exe del Windows SDK en $kits" }
+          $herramientas = Join-Path $sdk.FullName 'x64'
+          "herramientas=$herramientas" >> $env:GITHUB_OUTPUT
+          "Windows SDK $($sdk.Name)"
+          function Ejecutar($programa, $argumentos) {
+            $texto = & (Join-Path $herramientas $programa) @argumentos 2>&1
+            if ($LASTEXITCODE -ne 0) { $texto; throw "$programa $($argumentos[0]): código $LASTEXITCODE" }
+            $texto | Select-Object -Last 3
+          }
+
+          $recursos = Join-Path $env:RUNNER_TEMP 'recursos'
+          New-Item -ItemType Directory -Force $recursos | Out-Null
+          Copy-Item (Join-Path $carpeta 'Assets') $recursos -Recurse
+          $configuracion = Join-Path $env:RUNNER_TEMP 'priconfig.xml'
+          Ejecutar makepri.exe @('createconfig', '/cf', $configuracion, '/dq', 'es-ES', '/pv', '10.0.0', '/o')
+          [xml]$xml = Get-Content $configuracion -Raw
+          # Sin «packaging»: un único resources.pri, sin paquetes de recursos aparte (eso es para los bundles)
+          foreach ($nodo in @($xml.DocumentElement.SelectNodes('packaging'))) { [void]$xml.DocumentElement.RemoveChild($nodo) }
+          $xml.Save($configuracion)
+          $pri = Join-Path $carpeta 'resources.pri'
+          Ejecutar makepri.exe @('new', '/pr', $recursos, '/cf', $configuracion, '/mn', (Join-Path $carpeta 'AppxManifest.xml'),
+                                 '/of', $pri, '/o')
+          $volcado = Join-Path $env:RUNNER_TEMP 'resources.xml'
+          Ejecutar makepri.exe @('dump', '/if', $pri, '/of', $volcado, '/o')
+          $texto = Get-Content $volcado -Raw
+          $candidatos = ([regex]::Matches($texto, '<Candidate\b')).Count
+          $iconos = (Get-ChildItem (Join-Path $carpeta 'Assets') -File).Count
+          foreach ($icono in 'Square44x44Logo.png', 'Square150x150Logo.png', 'StoreLogo.png') {
+            if ($texto -notmatch [regex]::Escape("Files/Assets/$icono")) { throw "resources.pri no tiene Assets\$icono" }
+          }
+          if ($candidatos -ne $iconos) { throw "resources.pri tiene $candidatos variantes de los iconos y hay $iconos" }
+          "resources.pri: las $iconos variantes de los iconos"
+
+          Ejecutar makeappx.exe @('pack', '/o', '/d', $carpeta, '/p', (Join-Path $PWD 'salida\CentrosEducativos.msix'))
+          [xml]$manifiesto = Get-Content (Join-Path $carpeta 'AppxManifest.xml') -Raw
+          $id = $manifiesto.Package.Identity
+          $tamano = [math]::Round((Get-Item salida\CentrosEducativos.msix).Length / 1MB, 1)
+          $resumen = @(
+            '### Paquete de la Microsoft Store',
+            '',
+            "- **Archivo:** CentrosEducativos.msix ($tamano MB), en «Artifacts» > CentrosEducativos-tienda (sin firmar: lo firma la Tienda)",
+            "- **Versión:** $($id.Version)",
+            "- **Identidad:** ``$($id.Name)`` · ``$($id.Publisher)`` · $($manifiesto.Package.Properties.PublisherDisplayName)",
+            "- **Nombre:** $($manifiesto.Package.Properties.DisplayName)"
+          )
+          if ($id.Name -eq 'CentrosEducativos.Prueba') {
+            $resumen += '', '> Identidad de prueba: para subirlo a la Tienda, copia la de Partner Center en las variables STORE_* del repositorio (windows/TIENDA.md).'
+            "::notice title=Microsoft Store::El .msix lleva una identidad de prueba: sirve para probarlo, no para subirlo a la Tienda (windows/TIENDA.md)."
+          } elseif ($env:GITHUB_EVENT_NAME -ne 'release') {
+            $resumen += '', '> Versión de prueba (0.0.N): para la Tienda, usa el .msix de la ejecución de una versión publicada.'
+          }
+          $resumen -join "`n" >> $env:GITHUB_STEP_SUMMARY
+          "CentrosEducativos.msix: $tamano MB, versión $($id.Version), $($id.Name) · $($id.Publisher)"
+
+      # Windows no instala un .msix sin firmar: para probarlo se firma una copia con un certificado de prueba del mismo
+      # editor. El .msix que se sube a la Tienda va sin firmar.
+      - name: Probar el .msix (instalación, arranque y desinstalación)
+        shell: pwsh
+        env:
+          HERRAMIENTAS: ${{ steps.msix.outputs.herramientas }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          [xml]$manifiesto = Get-Content (Join-Path $env:RUNNER_TEMP 'paquete-msix\AppxManifest.xml') -Raw
+          $nombre = $manifiesto.Package.Identity.Name
+          $editor = $manifiesto.Package.Identity.Publisher
+          $aplicacion = $manifiesto.Package.Applications.Application.Id
+          $real = Join-Path $env:LOCALAPPDATA 'CentrosEducativos'
+          $escritorio = Join-Path ([Environment]::GetFolderPath('Desktop')) 'Centros educativos.lnk'
+          Remove-Item $real -Recurse -Force -ErrorAction SilentlyContinue  # lo que dejó la prueba del .msi
+          if (Test-Path $escritorio) { throw "Antes de la prueba ya hay un acceso directo en el escritorio" }
+
+          $clave = [System.Security.Cryptography.RSA]::Create(2048)
+          $peticion = [System.Security.Cryptography.X509Certificates.CertificateRequest]::new($editor, $clave,
+            [System.Security.Cryptography.HashAlgorithmName]::SHA256, [System.Security.Cryptography.RSASignaturePadding]::Pkcs1)
+          $peticion.CertificateExtensions.Add(
+            [System.Security.Cryptography.X509Certificates.X509BasicConstraintsExtension]::new($false, $false, 0, $true))
+          $peticion.CertificateExtensions.Add([System.Security.Cryptography.X509Certificates.X509KeyUsageExtension]::new(
+            [System.Security.Cryptography.X509Certificates.X509KeyUsageFlags]::DigitalSignature, $true))
+          $usos = [System.Security.Cryptography.OidCollection]::new()
+          [void]$usos.Add([System.Security.Cryptography.Oid]::new('1.3.6.1.5.5.7.3.3'))  # firma de código
+          $peticion.CertificateExtensions.Add(
+            [System.Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension]::new($usos, $false))
+          $certificado = $peticion.CreateSelfSigned([DateTimeOffset]::Now.AddDays(-1), [DateTimeOffset]::Now.AddDays(2))
+          $pfx = Join-Path $env:RUNNER_TEMP 'prueba.pfx'
+          [System.IO.File]::WriteAllBytes($pfx,
+            $certificado.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Pfx, 'prueba'))
+          $copia = Join-Path $env:RUNNER_TEMP 'prueba.msix'
+          Copy-Item salida\CentrosEducativos.msix $copia
+          & (Join-Path $env:HERRAMIENTAS 'signtool.exe') sign /q /fd SHA256 /f $pfx /p prueba $copia
+          if ($LASTEXITCODE -ne 0) { throw "signtool: código $LASTEXITCODE" }
+          $almacen = [System.Security.Cryptography.X509Certificates.X509Store]::new('TrustedPeople', 'LocalMachine')
+          $almacen.Open('ReadWrite')
+          $almacen.Add([System.Security.Cryptography.X509Certificates.X509Certificate2]::new($certificado.RawData))
+          $almacen.Close()
+          $politica = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Appx'
+          New-Item $politica -Force | Out-Null
+          Set-ItemProperty $politica AllowAllTrustedApps 1 -Type DWord
+
+          Import-Module Appx -UseWindowsPowerShell -WarningAction SilentlyContinue
+          Add-AppxPackage -Path $copia
+          $paquete = Get-AppxPackage -Name $nombre
+          if (-not $paquete) { throw "Tras instalar, Windows no encuentra el paquete $nombre" }
+          "Instalado $($paquete.PackageFullName) en $($paquete.InstallLocation)"
+          $datosPaquete = Join-Path $env:LOCALAPPDATA "Packages\$($paquete.PackageFamilyName)"
+          $datos = Join-Path $datosPaquete 'LocalCache\Local\CentrosEducativos'
+
+          # Como al abrirlo desde el menú Inicio: con la identidad del paquete
+          Add-Type -TypeDefinition @'
+          using System;
+          using System.Runtime.InteropServices;
+          public static class Activacion {
+              [ComImport, Guid("2e941141-7f97-4756-ba1d-9decde894a3d"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+              interface IApplicationActivationManager {
+                  void ActivateApplication([MarshalAs(UnmanagedType.LPWStr)] string appUserModelId,
+                      [MarshalAs(UnmanagedType.LPWStr)] string arguments, int options, out uint processId);
+              }
+              [ComImport, Guid("45BA127D-10A8-46EA-8AB7-56EA9078943C")]
+              class ApplicationActivationManager { }
+              public static uint Abrir(string aumid) {
+                  uint proceso;
+                  ((IApplicationActivationManager)new ApplicationActivationManager()).ActivateApplication(aumid, null, 0, out proceso);
+                  return proceso;
+              }
+          }
+          '@
+          $id = [Activacion]::Abrir("$($paquete.PackageFamilyName)!$aplicacion")
+          Start-Sleep -Seconds 40
+          $programa = Get-Process -Id $id -ErrorAction SilentlyContinue
+          foreach ($registro in (Join-Path $datos 'error.log'), (Join-Path $real 'error.log')) {
+            if (Test-Path $registro) { Get-Content $registro; throw "El programa ha escrito $registro" }
+          }
+          if (-not $programa) { throw 'El programa se ha cerrado solo' }
+          if (-not $programa.Path.StartsWith($paquete.InstallLocation, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "El proceso abierto no es el del paquete: $($programa.Path)"
+          }
+          if (-not (Test-Path $datos)) { throw "No están los datos del programa en ${datos}: no se ha abierto como paquete" }
+          if (Test-Path $real) { throw "El programa ha escrito en $real, fuera de los datos del paquete" }
+          if (Test-Path $escritorio) { throw 'El programa ha creado el acceso directo del escritorio' }
+          Get-ChildItem $datos | Format-Table Name, Length
+          'El programa arranca con la identidad del paquete y guarda sus datos en la carpeta del paquete'
+
+          Stop-Process -Id $id -Force
+          Start-Sleep -Seconds 2
+          Remove-AppxPackage -Package $paquete.PackageFullName
+          if (Get-AppxPackage -Name $nombre) { throw 'Tras desinstalar, el paquete sigue instalado' }
+          for ($i = 0; $i -lt 30 -and (Test-Path $datosPaquete); $i++) { Start-Sleep -Seconds 1 }
+          if (Test-Path $datosPaquete) { "::warning title=Datos del paquete::Tras desinstalar queda $datosPaquete" }
+          else { 'Desinstalado: Windows ha borrado también los datos del paquete' }
+
       - name: Subir el zip
         uses: actions/upload-artifact@v4
         with:
@@ -273,23 +446,28 @@ jobs:
           path: salida/CentrosEducativos.zip
           if-no-files-found: error
 
-      - name: Subir el .msi sin firmar
-        id: subir-msi
+      - name: Subir el .msi
         uses: actions/upload-artifact@v4
         with:
           name: CentrosEducativos-msi
           path: salida/CentrosEducativos.msi
           if-no-files-found: error
 
+      - name: Subir el .msix para la Microsoft Store
+        uses: actions/upload-artifact@v4
+        with:
+          name: CentrosEducativos-tienda
+          path: salida/CentrosEducativos.msix
+          if-no-files-found: error
+
   publicar:
-    name: Firmar y adjuntar a la versión
+    name: Adjuntar a la versión
     needs: compilar
     if: github.event_name == 'release'
     runs-on: windows-2025
-    timeout-minutes: 330
+    timeout-minutes: 15
     permissions:
       contents: write  # subir los archivos a la versión
-      actions: read    # SignPath descarga el .msi sin firmar de esta ejecución
     steps:
       - name: Descargar el zip y el .msi
         uses: actions/download-artifact@v4
@@ -297,35 +475,7 @@ jobs:
           path: descargas
           merge-multiple: true
 
-      - name: Firmar el .msi con SignPath (hay que aprobarlo en SignPath)
-        id: firma
-        if: vars.SIGNPATH_ORGANIZATION_ID != ''
-        uses: signpath/github-action-submit-signing-request@v3
-        with:
-          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
-          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
-          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
-          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
-          github-artifact-id: ${{ needs.compilar.outputs.msi-artifact-id }}
-          wait-for-completion: true
-          wait-for-completion-timeout-in-seconds: 18000
-          output-artifact-directory: firmado
-
-      - name: Comprobar la firma
-        if: steps.firma.outcome == 'success'
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $firma = Get-AuthenticodeSignature firmado\CentrosEducativos.msi
-          if ($firma.Status -ne 'Valid') { throw "El .msi firmado no tiene una firma válida: $($firma.Status)" }
-          Copy-Item firmado\CentrosEducativos.msi descargas\CentrosEducativos.msi -Force
-          "Firmado por: $($firma.SignerCertificate.Subject)"
-
-      - name: Avisar de que el .msi va sin firmar
-        if: vars.SIGNPATH_ORGANIZATION_ID == ''
-        shell: pwsh
-        run: '"::warning title=.msi sin firmar::SignPath no está configurado (windows/FIRMA.md): el .msi se publica sin firmar."'
-
+      # El .msix no se adjunta: sin la firma de la Tienda, Windows no lo instala. Se sube a Partner Center.
       - name: Adjuntar el zip y el .msi a la versión
         shell: pwsh
         env:

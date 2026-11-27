@@ -6,7 +6,7 @@
     Es un paquete «por usuario o por equipo» (MSIINSTALLPERUSER=1): la forma que recomienda Windows Installer para
     instalar por usuario.
   - No tiene acciones personalizadas ni ejecutables propios: solo Windows Installer, de Microsoft, y el Python oficial,
-    firmado por la Python Software Foundation. Con el .msi firmado, todo lo que se ejecuta va firmado.
+    firmado por la Python Software Foundation.
   - Crea los accesos directos del menú Inicio y del escritorio, y se desinstala desde Configuración > Aplicaciones.
   - Al instalar una versión nueva, sustituye a la anterior. La lista descargada y la configuración, que están en
     %LOCALAPPDATA%\CentrosEducativos, se conservan.
@@ -26,7 +26,7 @@
            Codepage="1252"
            Compressed="yes">
 
-    <!-- Asunto y autor del .msi: SignPath comprueba que coincidan al firmarlo (windows/FIRMA.md). -->
+    <!-- Asunto y autor del .msi (propiedades del archivo en el Explorador). -->
     <SummaryInformation Description="Centros educativos" Manufacturer="Mischka99" />
 
     <MajorUpgrade DowngradeErrorMessage="Ya está instalada una versión más reciente de Centros educativos." />

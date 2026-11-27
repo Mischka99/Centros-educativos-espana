@@ -56,6 +56,27 @@ DESCRIPCION_ACCESO = "Centros educativos de España: teléfono y email"
 # «Centros educativos.exe» (junto a la carpeta «programa») es el pythonw.exe oficial, firmado por la Python Software
 # Foundation, con otro nombre; al abrirlo sin argumentos, sitecustomize.py arranca esta ventana.
 LANZADOR = os.path.join(os.path.dirname(APP_DIR), "Centros educativos.exe")
+
+
+def _familia_paquete():
+    """Familia del paquete MSIX si el programa se ejecuta instalado desde la Microsoft Store; si no, None."""
+    if sys.platform != "win32":
+        return None
+    try:
+        funcion = ctypes.windll.kernel32.GetCurrentPackageFamilyName
+        longitud = ctypes.c_uint32(0)
+        if funcion(ctypes.byref(longitud), None) != 122:  # ERROR_INSUFFICIENT_BUFFER; sin paquete: 15700
+            return None
+        nombre = ctypes.create_unicode_buffer(longitud.value)
+        return nombre.value if funcion(ctypes.byref(longitud), nombre) == 0 else None
+    except Exception:
+        return None
+
+
+# Instalado desde la Microsoft Store: Windows ya lo pone en el menú Inicio, y un acceso directo al .exe dejaría de
+# funcionar con la primera actualización (la carpeta del programa cambia con cada versión), así que no se crea el del
+# escritorio.
+TIENDA = _familia_paquete()
 FOLDERID_DOCUMENTOS = "{FDD39AD0-238F-46AF-ADB4-6C85480369C7}"
 FOLDERID_ESCRITORIO = "{B4BFCC3A-DB2C-424C-B029-7FE99A87C641}"
 RUTA_INICIAL = os.path.join(APP_DIR, "datos", "centros_inicial.json.gz")   # lista incluida con el programa
@@ -273,7 +294,7 @@ def _lnk_powershell(lnk, destino, argumentos, carpeta, icono, descripcion):
 def acceso_directo(forzar=False):
     """Crea el acceso directo del escritorio la primera vez (o si forzar) y lo mantiene apuntando a esta carpeta.
     Devuelve 'creado', 'actualizado', 'omitido' o 'error: ...'."""
-    if sys.platform != "win32":
+    if sys.platform != "win32" or TIENDA:
         return "omitido"
     if os.path.exists(LANZADOR):
         destino, argumentos, carpeta = LANZADOR, "", os.path.dirname(LANZADOR)
@@ -299,15 +320,31 @@ def acceso_directo(forzar=False):
     return "actualizado" if existe else "creado"
 
 
+def ruta_en_explorador(ruta):
+    """Dónde encuentra el usuario, con el Explorador de Windows, un archivo que el programa ha creado en %LOCALAPPDATA%.
+    En la versión de la Microsoft Store, Windows guarda esos archivos en la carpeta de datos del paquete."""
+    local = os.environ.get("LOCALAPPDATA")
+    if not (TIENDA and local and ruta):
+        return ruta
+    try:
+        relativa = os.path.relpath(ruta, local)
+    except ValueError:  # otra unidad
+        return ruta
+    if relativa == os.curdir or relativa.split(os.sep)[0] == os.pardir:
+        return ruta
+    privada = os.path.join(local, "Packages", TIENDA, "LocalCache", "Local", relativa)
+    return privada if os.path.exists(privada) else ruta
+
+
 def registrar_error(texto):
-    """Guarda el detalle de un error en error.log (carpeta del programa o perfil del usuario)."""
+    """Guarda el detalle de un error en error.log (carpeta del programa o perfil del usuario) y devuelve dónde está."""
     for d in (APP_DIR, os.path.join(os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"), "CentrosEducativos")):
         try:
             os.makedirs(d, exist_ok=True)
             ruta = os.path.join(d, "error.log")
             with open(ruta, "a", encoding="utf-8") as f:
                 f.write(f"--- {datetime.now():%Y-%m-%d %H:%M:%S}\n{texto}\n")
-            return ruta
+            return ruta_en_explorador(ruta)
         except OSError:
             continue
     return ""
@@ -864,7 +901,8 @@ class App(tk.Tk):
         threading.Thread(target=self._tarea_cargar, daemon=True).start()
         threading.Thread(target=self.servicio_mapa.limpiar_viejas, daemon=True).start()
         self.after(100, self._sondear)
-        self.after(1500, lambda: self._lanzar_acceso(False))
+        if not TIENDA:
+            self.after(1500, lambda: self._lanzar_acceso(False))
         self.after(REVISION_MS, self._revision_periodica)
         self.protocol("WM_DELETE_WINDOW", self._cerrar)
 
@@ -1089,7 +1127,7 @@ class App(tk.Tk):
         self.btn_actualizar.pack(fill="x")
         enlaces = tk.Frame(tarjeta, bg=C["lat2"])
         enlaces.pack(fill="x", pady=(px(10), 0))
-        if sys.platform == "win32":
+        if sys.platform == "win32" and not TIENDA:
             ttk.Button(enlaces, text="Crear acceso directo en el escritorio", style=self.estilo_enlace_osc,
                        command=lambda: self._lanzar_acceso(True), cursor="hand2").pack(anchor="w")
         ttk.Button(enlaces, text="Ver el historial de actualizaciones", style=self.estilo_enlace_osc,
