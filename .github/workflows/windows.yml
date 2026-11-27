@@ -332,7 +332,7 @@ jobs:
           $resumen = @(
             '### Paquete de la Microsoft Store',
             '',
-            "- **Archivo:** CentrosEducativos.msix ($tamano MB), en «Artifacts» > CentrosEducativos-tienda (sin firmar: lo firma la Tienda)",
+            "- **Archivo:** CentrosEducativos.msix ($tamano MB), abajo en «Artifacts» (sin firmar: lo firma la Tienda)",
             "- **Versión:** $($id.Version)",
             "- **Identidad:** ``$($id.Name)`` · ``$($id.Publisher)`` · $($manifiesto.Package.Properties.PublisherDisplayName)",
             "- **Nombre:** $($manifiesto.Package.Properties.DisplayName)"
@@ -438,44 +438,61 @@ jobs:
           if (Test-Path $datosPaquete) { "::warning title=Datos del paquete::Tras desinstalar queda $datosPaquete" }
           else { 'Desinstalado: Windows ha borrado también los datos del paquete' }
 
+      # Sin comprimir (archive: false): cada artefacto se descarga tal cual, con el nombre del archivo.
       - name: Subir el zip
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: CentrosEducativos-zip
           path: salida/CentrosEducativos.zip
+          archive: false
           if-no-files-found: error
 
       - name: Subir el .msi
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: CentrosEducativos-msi
           path: salida/CentrosEducativos.msi
+          archive: false
           if-no-files-found: error
 
       - name: Subir el .msix para la Microsoft Store
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: CentrosEducativos-tienda
           path: salida/CentrosEducativos.msix
+          archive: false
           if-no-files-found: error
 
   publicar:
     name: Adjuntar a la versión
     needs: compilar
-    if: github.event_name == 'release'
+    if: github.event_name == 'release' || github.ref == 'refs/heads/msix'
     runs-on: windows-2025
     timeout-minutes: 15
     permissions:
       contents: write  # subir los archivos a la versión
     steps:
-      - name: Descargar el zip y el .msi
-        uses: actions/download-artifact@v4
+      - name: Descargar el zip
+        uses: actions/download-artifact@v8
         with:
+          name: CentrosEducativos.zip
           path: descargas
-          merge-multiple: true
+
+      - name: Descargar el .msi
+        uses: actions/download-artifact@v8
+        with:
+          name: CentrosEducativos.msi
+          path: descargas
+
+      - name: Comprobar los archivos
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Get-ChildItem descargas -Recurse | Format-Table FullName, Length
+          foreach ($f in 'CentrosEducativos.zip', 'CentrosEducativos.msi') {
+            if (-not (Test-Path (Join-Path descargas $f) -PathType Leaf)) { throw "No se ha descargado $f" }
+          }
 
       # El .msix no se adjunta: sin la firma de la Tienda, Windows no lo instala. Se sube a Partner Center.
       - name: Adjuntar el zip y el .msi a la versión
+        if: github.event_name == 'release'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}

@@ -30,7 +30,7 @@ Además, la compilación genera **`CentrosEducativos.msix`**, el paquete de la M
    - Añade [`msix/AppxManifest.xml`](msix/AppxManifest.xml), con la identidad de Partner Center (las variables `STORE_*` del repositorio; sin ellas, una de prueba), y los iconos de [`msix/Assets`](msix/Assets).
    - Crea `resources.pri` con makepri y el `.msix` con makeappx, del Windows SDK.
 9. Firma una copia del `.msix` con un certificado de prueba, la instala y abre el programa como desde el menú Inicio. Comprueba que arranca con la identidad del paquete, que guarda sus datos en la carpeta del paquete y que no crea el acceso directo del escritorio. Después lo desinstala.
-10. Al publicar una versión, adjunta el zip y el `.msi` a la versión. El `.msix` queda en los artefactos de la ejecución («CentrosEducativos-tienda»), para subirlo a Partner Center.
+10. Al publicar una versión, adjunta el zip y el `.msi` a la versión. El `.msix` queda en los artefactos de la ejecución, para subirlo a Partner Center. Los tres archivos están también en los artefactos de cada ejecución, sin comprimir.
 
 ## Versión de la Microsoft Store
 
