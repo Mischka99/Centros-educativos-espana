@@ -474,6 +474,7 @@ jobs:
         with:
           name: CentrosEducativos.zip
           path: descargas
+          skip-decompress: true  # es un .zip: sin esto, lo descomprime
 
       - name: Descargar el .msi
         uses: actions/download-artifact@v8

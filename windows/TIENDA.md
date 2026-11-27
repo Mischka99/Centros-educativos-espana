@@ -114,7 +114,7 @@ En «Capacidades restringidas» (Restricted capabilities), la justificación de 
 
 En «Notas para la certificación» (Notes for certification):
 
-> Free, open-source desktop app. No account or sign-in is needed. It ships with the full list of Spanish schools and works offline; with an internet connection it updates the list weekly from public government open data and shows maps from the Spanish National Geographic Institute (IGN). To test it: choose a region on the left, select a school to see its details and map, mark it and click "Descargar lista" to export to Excel. Source code: https://github.com/Mischka99/Centros-educativos-espana
+> Free, open-source desktop app. No account or sign-in is needed. It ships with the full list of Spanish schools and works offline; with an internet connection it updates the list weekly from public government open data and shows maps from the Spanish National Geographic Institute (IGN). To test it: select a school in the list to see its details and map, click "Marcar este centro" and then "Descargar marcados" to export the marked schools to Excel ("Descargar lista" exports the whole filtered list). Source code: https://github.com/Mischka99/Centros-educativos-espana
 
 Por último, pulsa «Enviar a la Store» (Submit to the Store). La certificación tarda hasta tres días laborables y Partner Center avisa por email. Cuando se publique, el enlace de la Tienda aparece en Identidad del producto: añádelo a la sección «Descargar y usar» del [README](../README.md).
 
