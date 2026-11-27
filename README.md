@@ -21,7 +21,7 @@ Descarga uno de estos dos archivos de la [última versión](https://github.com/M
 
 Para desinstalarlo, ve a Configuración > Aplicaciones, busca «Centros educativos» y pulsa Desinstalar.
 
-Mientras el instalador no vaya firmado (ver [Code signing policy](#code-signing-policy)), el Control inteligente de aplicaciones de Windows 11 puede bloquearlo. En ese caso, usa el zip.
+El instalador no va firmado, así que el Control inteligente de aplicaciones de Windows 11 puede bloquearlo. En ese caso, usa el zip: todo lo que ejecuta lleva la firma de la Python Software Foundation o de Microsoft.
 
 **Portable: `CentrosEducativos.zip`**
 
@@ -85,9 +85,10 @@ El Control inteligente de aplicaciones de Windows 11 bloquea los `.bat` y `.lnk`
 - El paquete solo lleva el Python oficial de python.org: sus 37 `.exe`/`.dll`/`.pyd` están firmados por la Python Software Foundation o por Microsoft.
 - «Centros educativos.exe» es el `pythonw.exe` oficial con otro nombre. [`windows/sitecustomize.py`](windows/sitecustomize.py) arranca el programa.
 - No hay ningún `.bat`, y el acceso directo se crea con la API de Windows.
-- El instalador `.msi` no tiene acciones personalizadas: lo ejecuta Windows Installer, de Microsoft. Solo falta firmar el propio `.msi` (ver [Code signing policy](#code-signing-policy)).
+- El instalador `.msi` no tiene acciones personalizadas: lo ejecuta Windows Installer, de Microsoft. Lo único sin firmar es el propio `.msi`.
+- La versión de la Microsoft Store, en preparación, la firma Microsoft al publicarla. Cómo se publica: [`windows/TIENDA.md`](windows/TIENDA.md).
 
-GitHub Actions compila el zip y el `.msi` a partir de los archivos oficiales de python.org y los prueba en Windows. Cómo se montan: [`windows/README.md`](windows/README.md).
+GitHub Actions compila el zip, el `.msi` y el paquete de la Microsoft Store a partir de los archivos oficiales de python.org, y los prueba en Windows. Cómo se montan: [`windows/README.md`](windows/README.md).
 
 ## Script de consola
 
@@ -160,15 +161,15 @@ El tipo de centro se deduce de la denominación oficial, escrita en castellano, 
 | `img/<escala>/` | Iconos PNG para cada escalado de pantalla (100 % a 300 %). |
 | `generar_imagenes.py` | Vuelve a generar los iconos. Solo hace falta si cambian, y necesita `rsvg-convert` y Pillow. |
 | `datos/centros_inicial.json.gz` | La lista incluida con el programa. |
-| `windows/` | Guía para el usuario, arranque, montaje del paquete (`montar_paquete.py`), instalador (`instalador.wxs`) y firma (`FIRMA.md`). |
-| `.github/workflows/windows.yml` | Compilación automática del zip y del `.msi`, con sus pruebas y la firma. |
+| `windows/` | Guía para el usuario, arranque, montaje del paquete (`montar_paquete.py`), instalador (`instalador.wxs`) y paquete de la Microsoft Store (`montar_msix.py`, `msix/` y la guía `TIENDA.md`). |
+| `.github/workflows/windows.yml` | Compilación automática del zip, del `.msi` y del `.msix`, con sus pruebas. |
 
 ## Problemas frecuentes
 
 - **`CERTIFICATE_VERIFY_FAILED`.** El script ya añade los certificados intermedios que algunos servidores no envían (catedu.es, FNMT). Si aun así falla, actualiza Python o los certificados del sistema.
 - **Falla una comunidad.** El script sigue con las demás. Si falla el directorio autonómico, usa el listado del Ministerio para esa comunidad. Vuelve a ejecutarlo más tarde con `--refrescar`.
 - **Un portal cambia de formato o de dirección.** Cada comunidad tiene su propia función `load_xxx` en `centros_educativos.py`; basta con ajustar esa.
-- **Has encontrado un error.** Abre una incidencia en [Issues](https://github.com/Mischka99/Centros-educativos-espana/issues). Si el programa se cerró solo, adjunta el archivo `programa\error.log`.
+- **Has encontrado un error.** Abre una incidencia en [Issues](https://github.com/Mischka99/Centros-educativos-espana/issues). Si el programa se cerró solo, adjunta el archivo `error.log`: está en la carpeta `programa` o en `%LOCALAPPDATA%\CentrosEducativos` (en la versión de la Microsoft Store, en `%LOCALAPPDATA%\Packages`, dentro de la carpeta del programa: `LocalCache\Local\CentrosEducativos`).
 
 ## Uso responsable
 
@@ -178,7 +179,7 @@ El tipo de centro se deduce de la denominación oficial, escrita en castellano, 
 
 ## Privacidad
 
-El programa no recoge ni envía datos tuyos ni de tu equipo: no tiene publicidad, analítica ni telemetría. Todo lo que guarda se queda en tu equipo, en `%LOCALAPPDATA%\CentrosEducativos`.
+El programa no recoge ni envía datos tuyos ni de tu equipo: no tiene publicidad, analítica ni telemetría. Todo lo que guarda se queda en tu equipo, en `%LOCALAPPDATA%\CentrosEducativos` (en la versión de la Microsoft Store, en la carpeta de datos del programa, que Windows borra al desinstalarlo).
 
 Solo se conecta a internet para esto:
 
@@ -187,20 +188,6 @@ Solo se conecta a internet para esto:
 - **Lo que pulsas:** abrir la web de un centro o Google Maps en el navegador, escribir un email o llamar con tus aplicaciones.
 
 El instalador no se conecta a internet.
-
-## Code signing policy
-
-Free code signing provided by [SignPath.io](https://signpath.io), certificate by [SignPath Foundation](https://signpath.org).
-
-Pendiente de aprobación por SignPath Foundation: hasta entonces, el `.msi` se publica sin firmar.
-
-- **Qué se firma:** el instalador `CentrosEducativos.msi` de cada versión. Lo compila GitHub Actions a partir de este repositorio ([`.github/workflows/windows.yml`](.github/workflows/windows.yml)), y cada firma se aprueba a mano.
-- **Qué no se firma con este certificado:** los ejecutables del Python oficial que lleva dentro, que ya vienen firmados por la Python Software Foundation y Microsoft.
-- **Equipo:**
-  - Autores y revisores: [Mischka99](https://github.com/Mischka99)
-  - Aprobación de cada firma: [Mischka99](https://github.com/Mischka99)
-
-Cómo se configura: [`windows/FIRMA.md`](windows/FIRMA.md).
 
 ## Licencia
 

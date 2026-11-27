@@ -295,7 +295,9 @@ jobs:
           "herramientas=$herramientas" >> $env:GITHUB_OUTPUT
           "Windows SDK $($sdk.Name)"
           function Ejecutar($programa, $argumentos) {
-            $texto = & (Join-Path $herramientas $programa) @argumentos 2>&1
+            # makepri escribe en UTF-16: sin los caracteres nulos, se lee bien en el registro
+            $texto = & (Join-Path $herramientas $programa) @argumentos 2>&1 |
+              ForEach-Object { "$_" -replace "`0", '' } | Where-Object { $_.Trim() }
             if ($LASTEXITCODE -ne 0) { $texto; throw "$programa $($argumentos[0]): código $LASTEXITCODE" }
             $texto | Select-Object -Last 3
           }
@@ -384,9 +386,6 @@ jobs:
           $almacen.Open('ReadWrite')
           $almacen.Add([System.Security.Cryptography.X509Certificates.X509Certificate2]::new($certificado.RawData))
           $almacen.Close()
-          $politica = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Appx'
-          New-Item $politica -Force | Out-Null
-          Set-ItemProperty $politica AllowAllTrustedApps 1 -Type DWord
 
           Import-Module Appx -UseWindowsPowerShell -WarningAction SilentlyContinue
           Add-AppxPackage -Path $copia
