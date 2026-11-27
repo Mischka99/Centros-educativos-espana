@@ -5,7 +5,9 @@ Cada versión publica dos archivos con el mismo contenido:
 - **`CentrosEducativos.msi`:** instalador. Instala para el usuario, sin permisos de administrador, en `%LOCALAPPDATA%\Programs\Centros educativos`, y crea los accesos directos del menú Inicio y del escritorio. Se desinstala desde Configuración > Aplicaciones.
 - **`CentrosEducativos.zip`:** portable. Se descomprime en cualquier carpeta y se abre con doble clic.
 
-Los dos llevan solo el Python oficial de python.org, firmado por la Python Software Foundation y Microsoft, más archivos de texto e imágenes. No hay ningún ejecutable propio, así que el Control inteligente de aplicaciones de Windows 11 no bloquea el programa. El `.msi` es la excepción: hay que firmarlo, y eso explica [`FIRMA.md`](FIRMA.md).
+Los dos llevan solo el Python oficial de python.org, firmado por la Python Software Foundation y Microsoft, más archivos de texto e imágenes. No hay ningún ejecutable propio, así que el Control inteligente de aplicaciones de Windows 11 no bloquea el programa. El `.msi` es la excepción: va sin firmar, y el Control inteligente de aplicaciones puede bloquearlo.
+
+Además, la compilación genera **`CentrosEducativos.msix`**, el paquete de la Microsoft Store. Va sin firmar porque lo firma Microsoft al publicarlo: se sube a Partner Center como explica [`TIENDA.md`](TIENDA.md).
 
 ## Compilación automática
 
@@ -23,7 +25,22 @@ Los dos llevan solo el Python oficial de python.org, firmado por la Python Softw
 5. Compila el `.msi` con WiX Toolset 5 a partir de [`instalador.wxs`](instalador.wxs). Para el `.msi`, el paquete lleva los `.py` ya compilados: así Python no escribe nada en la carpeta del programa y la desinstalación no deja restos.
 6. Marca el `.msi` como instalable sin administrador y lo valida (ICE).
 7. Lo instala, abre el programa, comprueba que arranca sin errores y lo desinstala.
-8. Al publicar una versión, firma el `.msi` con SignPath (si está configurado) y adjunta el zip y el `.msi` a la versión.
+8. Monta el paquete de la Microsoft Store con [`montar_msix.py`](montar_msix.py) a partir del paquete del `.msi`:
+   - El ejecutable se llama `CentrosEducativos.exe`, sin espacios, y no lleva `LEEME.txt`.
+   - Añade [`msix/AppxManifest.xml`](msix/AppxManifest.xml), con la identidad de Partner Center (las variables `STORE_*` del repositorio; sin ellas, una de prueba), y los iconos de [`msix/Assets`](msix/Assets).
+   - Crea `resources.pri` con makepri y el `.msix` con makeappx, del Windows SDK.
+9. Firma una copia del `.msix` con un certificado de prueba, la instala y abre el programa como desde el menú Inicio. Comprueba que arranca con la identidad del paquete, que guarda sus datos en la carpeta del paquete y que no crea el acceso directo del escritorio. Después lo desinstala.
+10. Al publicar una versión, adjunta el zip y el `.msi` a la versión. El `.msix` queda en los artefactos de la ejecución, para subirlo a Partner Center. Los tres archivos están también en los artefactos de cada ejecución, sin comprimir.
+
+## Versión de la Microsoft Store
+
+Es el mismo programa, pero lo instala y lo actualiza la Tienda:
+
+- Se instala en `C:\Program Files\WindowsApps`, en una carpeta de solo lectura que cambia con cada versión. Por eso el programa no crea el acceso directo del escritorio: se abre desde el menú Inicio.
+- Lo que el programa guarda en `%LOCALAPPDATA%\CentrosEducativos` va a la carpeta de datos del paquete, `%LOCALAPPDATA%\Packages\<paquete>\LocalCache\Local\CentrosEducativos`. Windows la borra al desinstalarlo.
+- Se actualiza desde la Tienda.
+
+El programa sabe que es la versión de la Tienda porque Windows le da la identidad del paquete (`GetCurrentPackageFamilyName`).
 
 ## Estructura
 
@@ -56,10 +73,16 @@ dotnet tool install --global wix --version 5.0.2
 wix build -arch x64 -d Version=1.2.0 -d Origen=C:\paquete-msi windows\instalador.wxs -o CentrosEducativos.msi
 ```
 
-En Linux se puede montar el zip extrayendo los MSI con `msiextract` (paquete msitools) en lugar de `msiexec /a`. El `.msi` solo se puede compilar en Windows.
+El paquete de la Tienda se monta a partir del paquete del `.msi`. Después, makepri y makeappx (del Windows SDK) crean `resources.pri` y el `.msix`, como en el paso «Crear el .msix de la Microsoft Store» del workflow:
+
+```
+py windows\montar_msix.py C:\paquete-msi C:\paquete-msix --version 1.2.0 --nombre ... --editor CN=... --editor-visible ...
+```
+
+En Linux se puede montar el zip extrayendo los MSI con `msiextract` (paquete msitools) en lugar de `msiexec /a`. El `.msi` y el `.msix` solo se pueden compilar en Windows.
 
 ## Cómo arranca
 
-Cuando se abre `Centros educativos.exe` sin argumentos, Python carga `Lib\site-packages\sitecustomize.py`. Ese archivo comprueba el nombre del ejecutable y lanza `programa\centros_gui.pyw`. Si el programa falla al arrancar, el error se guarda en `programa\error.log`.
+Cuando se abre `Centros educativos.exe` (en la versión de la Tienda, `CentrosEducativos.exe`) sin argumentos, Python carga `Lib\site-packages\sitecustomize.py`. Ese archivo comprueba el nombre del ejecutable y lanza `programa\centros_gui.pyw`. Si el programa falla al arrancar, el error se guarda en `programa\error.log` o, si esa carpeta es de solo lectura, en `%LOCALAPPDATA%\CentrosEducativos\error.log`.
 
 Con cualquier otro nombre, o con argumentos, el Python del paquete funciona con normalidad: `sitecustomize.py` solo actúa en ese caso concreto.
